@@ -2,20 +2,14 @@ import os
 import tempfile
 from datetime import datetime
 from typing import Tuple, List, Dict
+import sys
 
 import whisper
 from pydub import AudioSegment
 
-# Optional speaker diarization - graceful fallback if unavailable
-try:
-    from pyannote.audio import Pipeline
-    DIARIZATION_AVAILABLE = True
-except ImportError:
-    DIARIZATION_AVAILABLE = False
-except Exception as e:
-    # Catch compatibility errors (e.g., torchaudio version mismatch)
-    print(f"[AudioProcessor] Diarization unavailable: {e}")
-    DIARIZATION_AVAILABLE = False
+# Don't import pyannote at module level due to import issues
+# It will be lazily imported only if needed
+DIARIZATION_AVAILABLE = False
 
 from memory_store import MemoryStore
 from summarizer import ConversationSummarizer
@@ -52,6 +46,8 @@ class ConversationAudioProcessor:
         if not os.path.isfile(audio_path):
             raise FileNotFoundError(audio_path)
 
+        print(f"[AudioProcessor] Processing conversation for person: {person_id}")
+
         # Convert to WAV if needed (Whisper works best with WAV)
         wav_path = audio_path
         if not audio_path.lower().endswith('.wav'):
@@ -77,10 +73,14 @@ class ConversationAudioProcessor:
 
         person = self.memory_store.get_person(person_id)
         last_summary = person.get("last_summary", "")
+        person_name = person.get("name", person_id)
+        person_relationship = person.get("relationship", "")
+        
+        print(f"[AudioProcessor] Person info - Name: {person_name}, Relationship: {person_relationship}, Last Summary: {bool(last_summary)}")
 
         summary = self.summarizer.summarize(
-            name=person.get("name", person_id),
-            relationship=person.get("relationship", ""),
+            name=person_name,
+            relationship=person_relationship,
             last_summary=last_summary,
             transcript=transcript,
             visit_count=person.get("visit_count", 0),
@@ -89,6 +89,8 @@ class ConversationAudioProcessor:
         )
         
         print(f"[AudioProcessor] Generated summary: {summary[:100]}...")
+        print(f"[AudioProcessor] DEBUG: Full summary from summarizer: {repr(summary)}")
+        print(f"[AudioProcessor] DEBUG: Summary length: {len(summary)} chars, lines: {len(summary.split(chr(10)))}")
 
         # Clean up temp WAV file if we created one
         if wav_path != audio_path and os.path.exists(wav_path):

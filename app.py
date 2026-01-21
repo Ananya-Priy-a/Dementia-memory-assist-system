@@ -2,6 +2,7 @@ import base64
 import io
 import json
 import os
+import shutil
 from datetime import datetime
 
 # Load environment variables from .env file
@@ -20,6 +21,17 @@ from memory_store import MemoryStore
 app = Flask(__name__, template_folder="templates", static_folder="static")
 CORS(app)
 
+# Check if ffmpeg is available in PATH
+if shutil.which("ffmpeg") is None:
+    print("[WARNING] FFmpeg is not installed or not in PATH.")
+    print("[WARNING] Please install FFmpeg and add it to your system PATH.")
+    print("[WARNING] Visit: https://ffmpeg.org/download.html for installation instructions.")
+    print("[WARNING] On Windows with Chocolatey: choco install ffmpeg")
+    print("[WARNING] Audio transcription will not work without FFmpeg.")
+    print("[WARNING] Continuing with limited functionality...")
+else:
+    print("[Startup] FFmpeg found in PATH")
+
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
@@ -27,9 +39,24 @@ MEMORY_PATH = os.path.join(DATA_DIR, "memories.json")
 KNOWN_FACES_DIR = os.path.join(DATA_DIR, "known_faces")
 os.makedirs(KNOWN_FACES_DIR, exist_ok=True)
 
-memory_store = MemoryStore(MEMORY_PATH)
-face_recognizer = FaceMemoryRecognizer(KNOWN_FACES_DIR, memory_store)
-audio_processor = ConversationAudioProcessor(memory_store)
+try:
+    print("[Startup] Initializing MemoryStore...")
+    memory_store = MemoryStore(MEMORY_PATH)
+    print("[Startup] MemoryStore initialized")
+    
+    print("[Startup] Initializing FaceMemoryRecognizer...")
+    face_recognizer = FaceMemoryRecognizer(KNOWN_FACES_DIR, memory_store)
+    print("[Startup] FaceMemoryRecognizer initialized")
+    
+    print("[Startup] Initializing ConversationAudioProcessor...")
+    audio_processor = ConversationAudioProcessor(memory_store)
+    print("[Startup] ConversationAudioProcessor initialized")
+    print("[Startup] All components initialized successfully!")
+except Exception as e:
+    print(f"[ERROR] Failed to initialize components: {e}")
+    import traceback
+    traceback.print_exc()
+    exit(1)
 
 
 @app.route("/")
@@ -183,6 +210,8 @@ def upload_audio(person_id):
     try:
         transcript, summary = audio_processor.process_conversation(person_id, temp_path)
         print(f"[API] Processing complete. Transcript length: {len(transcript)}, Summary length: {len(summary)}")
+        print(f"[API] DEBUG: Full summary from audio_processor: {repr(summary)}")
+        print(f"[API] DEBUG: Summary lines: {len(summary.split(chr(10)))}")
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -196,6 +225,8 @@ def upload_audio(person_id):
             os.remove(temp_path)
 
     updated = memory_store.update_after_visit(person_id, summary)
+    
+    print(f"[API] DEBUG: Summary in JSON response: {repr(summary)}")
 
     return jsonify(
         {
@@ -247,7 +278,7 @@ def upload_audio_multi():
         # Update memory for each person
         updated_people = {}
         for person_id, (transcript, summary) in results.items():
-            memory_store.update_after_visit(person_id, transcript, summary)
+            memory_store.update_after_visit(person_id, summary)
             updated_people[person_id] = memory_store.get_person(person_id)
         
         return jsonify({
@@ -341,4 +372,4 @@ def register_unknown_person():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)

@@ -281,11 +281,11 @@ canvas {
   font-size: 13px;
   font-weight: 400;
   margin: 0;
-  max-height: 75px;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
+  /* Removed max-height limit to show full summary */
+  /* Removed -webkit-line-clamp: 3 truncation */
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  white-space: normal;
 }
 
 .footer {

@@ -564,37 +564,50 @@ async function maybeStartMultiSpeakerRecording(personIds) {
 
 async function sendAudio(personId, blob) {
   console.log(`[Audio] Sending audio for ${personId}, size: ${blob.size} bytes`);
-  setStatus("Summarizing…");
+  setStatus("Summarising...");
+  cardSummary.textContent = "Processing your conversation...";
   const form = new FormData();
   form.append("audio", blob, "conversation.webm");
 
   try {
+    console.log(`[Audio] Uploading to /api/upload_audio/${personId}...`);
     const res = await fetch(`/api/upload_audio/${personId}`, {
       method: "POST",
       body: form,
     });
     
+    console.log(`[Audio] Response status: ${res.status}`);
+    
     if (!res.ok) {
       const errorText = await res.text();
       console.error(`[Audio] Server error: ${res.status} - ${errorText}`);
+      cardSummary.textContent = "Error: " + errorText.substring(0, 100);
       setStatus("Summary failed: " + res.status);
       return;
     }
     
     const payload = await res.json();
-    console.log("[Audio] Response:", payload);
+    console.log("[Audio] Response payload:", payload);
     
     if (payload.status === "ok") {
       const summary = payload.summary || payload.person?.last_summary || "Memory updated.";
+      console.log("[Audio] Got summary from server:", summary);
+      console.log("[Audio] Summary length:", summary.length, "chars");
+      console.log("[Audio] Summary lines:", summary.split('\n').length);
       cardSummary.textContent = summary;
-      setStatus("Updated memory for " + (payload.person?.name || personId));
-      console.log("[Audio] Summary updated:", summary);
+      console.log("[Audio] DEBUG: After setting textContent, element contains:", cardSummary.textContent);
+      console.log("[Audio] DEBUG: Element innerHTML:", cardSummary.innerHTML);
+      setStatus("Memory saved for " + (payload.person?.name || personId));
+      console.log("[Audio] Summary displayed (final check):", cardSummary.textContent);
     } else {
       console.error("[Audio] Error in response:", payload);
-      setStatus("Summary failed: " + (payload.message || "Unknown error"));
+      const errorMsg = payload.message || "Unknown error";
+      cardSummary.textContent = "Error: " + errorMsg;
+      setStatus("Summary failed: " + errorMsg);
     }
   } catch (err) {
     console.error("[Audio] Network error:", err);
+    cardSummary.textContent = "Network error: " + err.message;
     setStatus("Summary failed: Network error");
   } finally {
     if (recordingTimeout) {
@@ -606,7 +619,8 @@ async function sendAudio(personId, blob) {
 
 async function sendMultiSpeakerAudio(personIds, blob) {
   console.log(`[Audio] Sending multi-speaker audio for: ${personIds.join(", ")}, size: ${blob.size} bytes`);
-  setStatus("Processing multi-speaker conversation…");
+  setStatus("Summarising group conversation...");
+  cardSummary.textContent = "Processing conversation...";
 
   // Convert blob to base64
   const reader = new FileReader();
@@ -614,6 +628,7 @@ async function sendMultiSpeakerAudio(personIds, blob) {
     const base64audio = reader.result.split(",")[1];
     
     try {
+      console.log(`[Audio] Uploading multi-speaker audio to /api/upload_audio_multi...`);
       const response = await fetch("/api/upload_audio_multi", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -623,9 +638,13 @@ async function sendMultiSpeakerAudio(personIds, blob) {
         })
       });
       
+      console.log(`[Audio] Response status: ${response.status}`);
+      
       if (!response.ok) {
-        console.error(`[Audio] Error: ${response.status}`);
-        setStatus("Multi-speaker processing failed");
+        const errorText = await response.text();
+        console.error(`[Audio] Error: ${response.status} - ${errorText}`);
+        cardSummary.textContent = "Error: " + errorText.substring(0, 100);
+        setStatus("Multi-speaker processing failed: " + response.status);
         return;
       }
       
@@ -638,16 +657,20 @@ async function sendMultiSpeakerAudio(personIds, blob) {
           .map(p => p.name)
           .join(" & ");
         
+        const summary = payload.people[Object.keys(payload.people)[0]].last_summary || "Memory updated";
+        
         // Show group conversation summary in card
         cardName.textContent = peopleNames;
         cardRelationship.textContent = "Group Conversation";
-        cardSummary.textContent = payload.people[Object.keys(payload.people)[0]].last_summary || "Memory updated";
+        cardSummary.textContent = summary;
         
         setStatus(`✓ Conversation saved for: ${peopleNames}`);
         console.log("[Audio] Multi-speaker memories updated");
       } else {
         console.error("[Audio] Error in response:", payload);
-        setStatus("Multi-speaker processing failed: " + (payload.message || "Unknown error"));
+        const errorMsg = payload.message || "Unknown error";
+        cardSummary.textContent = "Error: " + errorMsg;
+        setStatus("Multi-speaker processing failed: " + errorMsg);
       }
     } catch (err) {
       console.error("[Audio] Network error:", err);
