@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Memory Assist Demo</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+  <div id="app">
+    <div class="video-wrapper fullscreen">
+      <div class="header-overlay">
+        <div class="brand">Memory Assist Demo</div>
+        <div class="status-pill" id="status-pill">Ready</div>
+      </div>
+
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="overlay"></canvas>
+
+      <div class="controls-overlay">
+        <button id="stop-video-btn" class="control-btn stop-btn">Start Video</button>
+        <button id="rayban-mode-btn" class="control-btn rayban-btn">Enter Ray-Ban Mode</button>
+        <button id="mic-btn" class="control-btn mic-btn" title="Toggle Microphone">🎤 On</button>
+      </div>
+
+      <div id="memory-card" class="memory-card hidden">
+        <div class="card-name" id="card-name">Name</div>
+        <div class="card-badge" id="card-relationship">Relationship</div>
+        <div class="recording-indicator hidden" id="recording-indicator">
+          <span class="recording-dot"></span> Recording conversation...
+        </div>
+        <div class="summary-divider"></div>
+        <div class="card-summary" id="card-summary">
+          Brief memory will appear here after a short conversation.
+        </div>
+      </div>
+
+      <!-- Registration Modal for Unknown People -->
+      <div id="registration-modal" class="modal hidden">
+        <div class="modal-overlay"></div>
+        <div class="modal-content">
+          <h2>New Person Detected</h2>
+          <p>Would you like to save this person's information?</p>
+          
+          <div id="registration-form-container" class="registration-form-container">
+            <div class="form-group">
+              <label for="person-name">Name:</label>
+              <input type="text" id="person-name" placeholder="Enter name" />
+            </div>
+            <div class="form-group">
+              <label for="person-relation">Relationship:</label>
+              <input type="text" id="person-relation" placeholder="e.g., Friend, Family, Caregiver" />
+            </div>
+            <div class="form-actions">
+              <button id="register-confirm-btn" class="btn-confirm">Save & Add to Records</button>
+              <button id="register-cancel-btn" class="btn-cancel">Skip for Now</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
+
