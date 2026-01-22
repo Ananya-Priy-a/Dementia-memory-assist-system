@@ -19,7 +19,7 @@
 
 4. **✅ Verified API Key Configuration**
    - GROQ_API_KEY is present in `.env` file
-   <!-- - API Key: `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` -->
+   - API Key: `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`
 
 5. **✅ Updated Model List**
    - Fixed outdated model references (llama2, mixtral, gemma2)
