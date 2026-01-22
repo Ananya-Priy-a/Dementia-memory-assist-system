@@ -124,7 +124,7 @@ Check logs for:
 
 **File**: [.env](.env)
 ```
-GROQ_API_KEY=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
+<!-- GROQ_API_KEY=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 -->
 ```
 
 **Summarizer**: [summarizer.py](summarizer.py)  
