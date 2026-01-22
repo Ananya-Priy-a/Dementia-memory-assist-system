@@ -27,7 +27,7 @@ class ConversationSummarizer:
             api_key = os.getenv("GROQ_API_KEY")
             if api_key:
                 try:
-                    # Create SSL context that doesn't verify certificates (workaround for SSL issues)
+                    # Initialize Groq client with API key
                     self.groq_client = Groq(api_key=api_key)
                     self.llm_enabled = True
                     print("[Summarizer] Groq LLM enabled")
@@ -83,6 +83,7 @@ class ConversationSummarizer:
     def _summarize_with_llm(self, name: str, relationship: str, transcript: str, last_visit: Optional[str]) -> str:
         """
         Use Groq LLM to generate an emotional, important summary.
+        Automatically handles model selection and deprecation.
         """
         rel_info = f" ({relationship})" if relationship else ""
         time_info = f" They last visited on {last_visit}." if last_visit else ""
@@ -126,17 +127,44 @@ GOOD (captures meaning): "Discussed important work presentation with encourageme
 
 Now create a 3-4 line summary with important keywords that captures the essence and meaning:"""
 
-        message = self.groq_client.chat.completions.create(
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt,
-                }
-            ],
-            model="mixtral-8x7b-32768",  # Free Groq model with high rate limits
-        )
+        try:
+            # Try to get available models, fallback to common models
+            available_models = [
+                "llama-3.3-70b-versatile",  # Most capable, latest
+                "llama-3.1-8b-instant",     # Fast, lightweight
+                "whisper-large-v3",         # For audio transcription
+                "whisper-large-v3-turbo",   # Fast audio transcription
+            ]
+            
+            # Try each model in order
+            for model in available_models:
+                try:
+                    message = self.groq_client.chat.completions.create(
+                        messages=[
+                            {
+                                "role": "user",
+                                "content": prompt,
+                            }
+                        ],
+                        model=model,
+                    )
+                    print(f"[Summarizer] Using model: {model}")
+                    summary = message.choices[0].message.content.strip()
+                    break
+                except Exception as model_error:
+                    if "decommissioned" in str(model_error) or "not found" in str(model_error) or "does not exist" in str(model_error):
+                        print(f"[Summarizer] Model {model} not available, trying next...")
+                        continue
+                    else:
+                        # Some other error, raise it
+                        raise
+            else:
+                # No models available
+                raise Exception("No available Groq models found. Please check your API key and account.")
         
-        summary = message.choices[0].message.content.strip()
+        except Exception as e:
+            print(f"[Summarizer] LLM error: {type(e).__name__}: {e}")
+            raise
         
         # Post-check: validate that summary is not just truncation
         if self._is_truncation_or_verbatim(summary, transcript):
@@ -148,6 +176,8 @@ Now create a 3-4 line summary with important keywords that captures the essence 
         if len(lines) > 4:
             print(f"[Summarizer] Summary exceeds 4 lines ({len(lines)} lines). Truncating...")
             summary = '\n'.join(lines[:4])
+        
+        return summary
         
         return summary
 

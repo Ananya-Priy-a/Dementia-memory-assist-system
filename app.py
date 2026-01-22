@@ -5,6 +5,28 @@ import os
 import shutil
 from datetime import datetime
 
+import subprocess
+
+def normalize_audio(input_path, output_path):
+    if not os.path.exists(input_path):
+        raise FileNotFoundError(f"Input file not found: {input_path}")
+    
+    try:
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-i", input_path,
+                "-ar", "16000", "-ac", "1",
+                output_path
+            ],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+    except subprocess.CalledProcessError as e:
+        print(f"FFmpeg error: {e.stderr}")
+        raise
+
+
 # Load environment variables from .env file
 from dotenv import load_dotenv
 load_dotenv()
@@ -14,15 +36,15 @@ from flask_cors import CORS
 from PIL import Image
 
 from face_module import FaceMemoryRecognizer
-from audio_pipeline import ConversationAudioProcessor
+from audio_pipeline import ConversationAudioProcessor, FFMPEG_AVAILABLE
 from memory_store import MemoryStore
 
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 CORS(app)
 
-# Check if ffmpeg is available in PATH
-if shutil.which("ffmpeg") is None:
+# Check if ffmpeg is available
+if not FFMPEG_AVAILABLE:
     print("[WARNING] FFmpeg is not installed or not in PATH.")
     print("[WARNING] Please install FFmpeg and add it to your system PATH.")
     print("[WARNING] Visit: https://ffmpeg.org/download.html for installation instructions.")
@@ -30,7 +52,7 @@ if shutil.which("ffmpeg") is None:
     print("[WARNING] Audio transcription will not work without FFmpeg.")
     print("[WARNING] Continuing with limited functionality...")
 else:
-    print("[Startup] FFmpeg found in PATH")
+    print("[Startup] FFmpeg found and available")
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -181,6 +203,181 @@ def identify_all_faces():
 
     print(f"[API] Detected {len(people)} face(s)")
     return jsonify({"status": "ok", "people": people})
+
+
+# ============================================================================
+# SESSION-BASED TRANSCRIPTION API ENDPOINTS
+# ============================================================================
+# These endpoints implement the microphone ON/OFF lifecycle with accumulation
+# ============================================================================
+
+@app.route("/api/session/start/<person_id>", methods=["POST"])
+def start_session(person_id):
+    """
+    Start a new conversation session for a person.
+    Call this when the microphone turns ON.
+    
+    Returns:
+        {
+            "status": "ok",
+            "session_id": "...",
+            "person_id": "...",
+            "message": "Session started, ready to receive audio chunks"
+        }
+    """
+    try:
+        session_id = audio_processor.start_session(person_id)
+        return jsonify({
+            "status": "ok",
+            "session_id": session_id,
+            "person_id": person_id,
+            "message": "Session started. Send audio chunks while microphone is ON."
+        })
+    except RuntimeError as e:
+        print(f"[API] Session start failed: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+
+@app.route("/api/session/add_chunk/<person_id>", methods=["POST"])
+def add_audio_chunk(person_id):
+    """
+    Add an audio chunk to the active session.
+    Call this for each audio chunk while the microphone is ON.
+    
+    IMPORTANT: This does NOT summarize.
+    It only transcribes and accumulates the chunk.
+    
+    Expects:
+        multipart/form-data with 'audio' file
+    
+    Returns:
+        {
+            "status": "chunk_added",
+            "chunk_transcript": "...",
+            "session_status": {
+                "chunk_count": 5,
+                "transcript_length": 342,
+                ...
+            }
+        }
+    """
+    if "audio" not in request.files:
+        return jsonify({"status": "error", "message": "Missing audio file"}), 400
+    
+    audio_file = request.files["audio"]
+    if audio_file.filename == "":
+        return jsonify({"status": "error", "message": "Empty filename"}), 400
+    
+    # Save audio chunk temporarily
+    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
+    conv_dir = os.path.join(DATA_DIR, "conversations")
+    os.makedirs(conv_dir, exist_ok=True)
+    temp_path = os.path.join(conv_dir, f"{person_id}_{ts}.webm")
+    
+    try:
+        audio_file.save(temp_path)
+        file_size = os.path.getsize(temp_path)
+        print(f"[API] Received audio chunk for {person_id}: {file_size} bytes")
+        
+        # Add chunk to session (transcribe and accumulate, no summarization)
+        result = audio_processor.add_audio_chunk(person_id, temp_path)
+        
+        print(f"[API] Chunk processed: {result['status']}")
+        return jsonify(result)
+        
+    except RuntimeError as e:
+        print(f"[API] Error adding chunk: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 400
+    except Exception as e:
+        print(f"[API] Unexpected error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        # Clean up temp audio file
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except:
+                pass
+
+
+@app.route("/api/session/end/<person_id>", methods=["POST"])
+def end_session(person_id):
+    """
+    End the active session and summarize the ENTIRE conversation.
+    Call this when the microphone turns OFF.
+    
+    This is the ONLY place where summarization happens.
+    The full accumulated transcript is summarized.
+    
+    Returns:
+        {
+            "status": "success",
+            "session_id": "...",
+            "full_transcript": "...",
+            "summary": "...",
+            "memory": {...},
+            "session_metadata": {
+                "chunks_processed": 8,
+                "audio_duration_seconds": 45.2,
+                "duration_seconds": 87.5
+            }
+        }
+    """
+    try:
+        result = audio_processor.end_session_and_summarize(person_id)
+        return jsonify(result)
+    except RuntimeError as e:
+        print(f"[API] Session end failed: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 400
+    except Exception as e:
+        print(f"[API] Unexpected error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/session/status/<person_id>", methods=["GET"])
+def get_session_status(person_id):
+    """
+    Get the status of the active session for a person.
+    Returns None if no active session.
+    
+    Returns:
+        {
+            "status": "ok",
+            "session": {...} or null
+        }
+    """
+    session_status = audio_processor.get_session_status(person_id)
+    return jsonify({
+        "status": "ok",
+        "person_id": person_id,
+        "session": session_status
+    })
+
+
+@app.route("/api/sessions/status", methods=["GET"])
+def get_all_sessions_status():
+    """
+    Get status of all active sessions across all people.
+    
+    Returns:
+        {
+            "status": "ok",
+            "sessions": {
+                "active_sessions": {...},
+                "total_history": 42,
+                "timestamp": "..."
+            }
+        }
+    """
+    sessions_status = audio_processor.get_all_active_sessions_status()
+    return jsonify({
+        "status": "ok",
+        "sessions": sessions_status
+    })
 
 
 @app.route("/api/upload_audio/<person_id>", methods=["POST"])
